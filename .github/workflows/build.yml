@@ -1,4 +1,4 @@
-name: Build Windows
+name: Build
 
 on:
   push:
@@ -28,13 +28,34 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
+
+      - name: Download FFmpeg for Windows
+        run: |
+          $ffmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          $zipPath = "ffmpeg.zip"
+          $extractPath = "ffmpeg-temp"
+
+          Write-Host "Downloading FFmpeg..."
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $zipPath
+
+          Write-Host "Extracting FFmpeg..."
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+
+          Write-Host "Copying FFmpeg binaries..."
+          $ffmpegDir = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
+          $binPath = Join-Path $ffmpegDir.FullName "bin"
+
+          New-Item -ItemType Directory -Force -Path "src-tauri/binaries"
+          Copy-Item -Path (Join-Path $binPath "ffmpeg.exe") -Destination "src-tauri/binaries/ffmpeg.exe"
+          Copy-Item -Path (Join-Path $binPath "ffprobe.exe") -Destination "src-tauri/binaries/ffprobe.exe"
+
+          Write-Host "FFmpeg binaries copied successfully!"
+          Get-ChildItem "src-tauri/binaries"
 
       - name: Install dependencies
         run: npm ci
@@ -43,20 +64,19 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v__VERSION__
-          releaseName: "YouTube Live Manager v__VERSION__"
-          releaseBody: "See the assets to download and install this version."
-          releaseDraft: true
-          prerelease: false
 
-      - name: Upload Windows artifacts
+      - name: Upload Windows MSI
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x64
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
+          name: windows-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: warn
+
+      - name: Upload Windows NSIS
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis
+          path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: warn
 
   build-macos:
@@ -80,6 +100,15 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      - name: Download FFmpeg for macOS
+        run: |
+          brew install ffmpeg
+          mkdir -p src-tauri/binaries
+          cp $(which ffmpeg) src-tauri/binaries/ffmpeg
+          cp $(which ffprobe) src-tauri/binaries/ffprobe
+          chmod +x src-tauri/binaries/*
+          ls -la src-tauri/binaries/
+
       - name: Install dependencies
         run: npm ci
 
@@ -88,11 +117,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          name: macos-universal
-          path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app
+          name: macos-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: warn
